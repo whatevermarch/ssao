@@ -1,6 +1,7 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <iostream>
+#include <random>
 
 #include <QApplication>
 #include <QSurfaceFormat>
@@ -17,12 +18,14 @@
 
 #define SHADOW_MAP_WIDTH 1024
 
+//  inline function to perform linear interpolation
+inline float lerp(float a, float b, float f) { return a + f * (b - a); }
 
 //  function to generate 2D texture with fix filtering params.
-void createTexture(GLsizei width, GLsizei height, 
-    GLint inFormat, GLenum format, GLenum type, 
+void createTexture(GLsizei width, GLsizei height,
+    GLint inFormat, GLenum format, GLenum type,
     GLint filtering, GLint wrapping,
-    const GLvoid *data, unsigned int &texture)
+    const GLvoid* data, unsigned int& texture)
 {
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -45,7 +48,7 @@ void createShaderProgram(QOpenGLShaderProgram& program,
         Cg::prependGLSLVersion(shaderCode));
     shaderCode.clear();
 
-    shaderCode.append(inlineBits & 0x00000002 ? vs : Cg::loadFile(fs));
+    shaderCode.append(inlineBits & 0x00000002 ? fs : Cg::loadFile(fs));
     program.addShaderFromSourceCode(QOpenGLShader::Fragment,
         Cg::prependGLSLVersion(shaderCode));
     shaderCode.clear();
@@ -90,11 +93,12 @@ void SSAO::initializeScene()
     this->_mmat_model.translate(0.0f, 0.5f, 0.0f);
 }
 
-//  initialize intermediate buffers used during the full pipieline
-//  e.g. g-buffer, shadow map, etc.
-void SSAO::initializeIntermediateBuffers()
+//  setup SSAO pipeline, kernel and noise texture
+void SSAO::setupSSAOPass()
 {
+    /////////////////////////////////////////
     //  Setup G-Buffer
+    /////////////////////////////////////////
     // - position color buffer
     GLsizei screenWidth = this->width(), screenHeight = this->height();
     ::createTexture(screenWidth, screenHeight,
@@ -114,47 +118,41 @@ void SSAO::initializeIntermediateBuffers()
         GL_NEAREST, GL_CLAMP_TO_EDGE,
         NULL, this->_gBuffer.albedo);
 
+    // - shadow coord buffer
+    ::createTexture(screenWidth, screenHeight,
+        GL_RGB16F, GL_RGB, GL_FLOAT,
+        GL_NEAREST, GL_CLAMP_TO_EDGE,
+        NULL, this->_gBuffer.shadow);
+
+    //  attach g-buffer as FBOs
+    glGenFramebuffers(1, &this->_fbo_geom);
+    glBindFramebuffer(GL_FRAMEBUFFER, this->_fbo_geom);
+    unsigned int attachments[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
+    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[0], GL_TEXTURE_2D, this->_gBuffer.position, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[1], GL_TEXTURE_2D, this->_gBuffer.normal, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[2], GL_TEXTURE_2D, this->_gBuffer.albedo, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[3], GL_TEXTURE_2D, this->_gBuffer.shadow, 0);
+    /*this->_ogl33Func.*/glDrawBuffers(4, attachments);
+    //  also, attach depth render buffer to this fbo.
+    unsigned int rboDepth;
+    glGenRenderbuffers(1, &rboDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, screenWidth, screenHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CG_ASSERT_GLCHECK();
+
+    // Set up a pipeline for g-buffer pass
+    ::createShaderProgram(this->_prg_geom, "vs_geom.glsl", "fs_geom.glsl", 0);
+
+    /////////////////////////////////////////
+    //  Setup SSAO
+    /////////////////////////////////////////
     //  setup ssao color buffer
     ::createTexture(screenWidth, screenHeight,
         GL_RED, GL_RGB, GL_FLOAT,
         GL_NEAREST, GL_CLAMP_TO_EDGE,
         NULL, this->_tex_ssao);
-
-    //  setup depth map
-    ::createTexture(SHADOW_MAP_WIDTH, SHADOW_MAP_WIDTH,
-        GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_FLOAT,
-        GL_NEAREST, GL_CLAMP_TO_EDGE,
-        NULL, this->_tex_depth);
-}
-
-//  initialize all required framebuffers
-void SSAO::initializeFramebuffers()
-{
-    // attach depth texture as FBO's depth buffer
-    glGenFramebuffers(1, &this->_fbo_depth);
-    glBindFramebuffer(GL_FRAMEBUFFER, this->_fbo_depth);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, this->_tex_depth, 0);
-    this->_ogl33Func.glDrawBuffer(GL_NONE);
-    this->_ogl33Func.glReadBuffer(GL_NONE);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    CG_ASSERT_GLCHECK();
-
-    //  attach g-buffer as FBOs
-    glGenFramebuffers(1, &this->_fbo_geom);
-    glBindFramebuffer(GL_FRAMEBUFFER, this->_fbo_geom);
-    unsigned int attachments[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[0], GL_TEXTURE_2D, this->_gBuffer.position, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[1], GL_TEXTURE_2D, this->_gBuffer.normal, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, attachments[2], GL_TEXTURE_2D, this->_gBuffer.albedo, 0);
-    this->_ogl33Func.glDrawBuffers(3, attachments);
-    //  also, attach depth render buffer to this fbo.
-    unsigned int rboDepth;
-    glGenRenderbuffers(1, &rboDepth);
-    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, this->width(), this->height());
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    CG_ASSERT_GLCHECK();
 
     //  attach ssao buffer as FBO
     glGenFramebuffers(1, &this->_fbo_ssao);
@@ -162,20 +160,102 @@ void SSAO::initializeFramebuffers()
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this->_tex_ssao, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     CG_ASSERT_GLCHECK();
+
+    //  set up a pipeline for ssao
+    ::createShaderProgram(this->_prg_ssao, 
+        "vs_deferred.glsl",
+        "fs_ssao.glsl",
+        0);
+    //  set sampler location for all input textures
+    this->_prg_ssao.bind();
+    this->_prg_ssao.setUniformValue("g_position", 0);
+    this->_prg_ssao.setUniformValue("g_normal", 1);
+    this->_prg_ssao.setUniformValue("noise_texture", 2);
+
+    //  setup ssao blur buffer
+    ::createTexture(screenWidth, screenHeight,
+        GL_RED, GL_RGB, GL_FLOAT,
+        GL_NEAREST, GL_CLAMP_TO_EDGE,
+        NULL, this->_tex_ssao_blur);
+
+    //  attach ssao buffer as FBO
+    glGenFramebuffers(1, &this->_fbo_ssao_blur);
+    glBindFramebuffer(GL_FRAMEBUFFER, this->_fbo_ssao_blur);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this->_tex_ssao_blur, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CG_ASSERT_GLCHECK();
+
+    //  set up a pipeline for ssao
+    ::createShaderProgram(this->_prg_ssao_blur, 
+        "vs_deferred.glsl",
+        "fs_ssao_blur.glsl",
+        0);
+    //  set sampler location for all input textures
+    this->_prg_ssao_blur.bind();
+    this->_prg_ssao_blur.setUniformValue("ssao_texture", 0);
+
+    //  setup SSAO kernel and noise texture
+    this->setupSSAOKernel();
 }
 
-//  initialize all shader programs
-void SSAO::initializeShaders()
+//  setup SSAO kernel and noise texture
+void SSAO::setupSSAOKernel()
 {
-    // Set up a pipeline for main scene
-    ::createShaderProgram(this->_prg_main, "vs.glsl", "fs.glsl", 0);
+    // generate sample kernel
+    // ----------------------
+    std::uniform_real_distribution<GLfloat> randomFloats(0.0, 1.0); // generates random floats between 0.0 and 1.0
+    std::default_random_engine generator;
+    for (unsigned int i = 0; i < 64; ++i)
+    {
+        QVector3D sample(randomFloats(generator) * 2.0 - 1.0, 
+            randomFloats(generator) * 2.0 - 1.0, 
+            randomFloats(generator));
+        sample.normalize();
+        sample *= randomFloats(generator);
+        float scale = float(i) / 64.0;
 
-    // Set up a pipeline for g-buffer pass
-    ::createShaderProgram(this->_prg_geom, "vs_geom.glsl", "fs_geom.glsl", 0);
+        // scale samples s.t. they're more aligned to center of kernel
+        scale = lerp(0.1f, 1.0f, scale * scale);
+        sample *= scale;
+        this->_ssaoKernel.push_back(sample);
+    }
+
+    // generate noise texture
+    // ----------------------
+    for (unsigned int i = 0; i < 16; i++)
+    {
+        QVector3D noise(randomFloats(generator) * 2.0 - 1.0, 
+            randomFloats(generator) * 2.0 - 1.0, 
+            0.0f); // rotate around z-axis (in tangent space)
+        this->_ssaoNoise.push_back(noise);
+    }
+    ::createTexture(4, 4, 
+        GL_RGB32F, GL_RGB, GL_FLOAT, 
+        GL_NEAREST, GL_REPEAT, 
+        this->_ssaoNoise.data(), this->_tex_noise);
+}
+
+//  setup shadow map pipeline
+void SSAO::setupShadowPass()
+{
+    //  setup depth map
+    ::createTexture(SHADOW_MAP_WIDTH, SHADOW_MAP_WIDTH,
+        GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_FLOAT,
+        GL_NEAREST, GL_CLAMP_TO_EDGE,
+        NULL, this->_tex_depth);
+
+    // attach depth texture as FBO's depth buffer
+    glGenFramebuffers(1, &this->_fbo_depth);
+    glBindFramebuffer(GL_FRAMEBUFFER, this->_fbo_depth);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, this->_tex_depth, 0);
+    /*this->_ogl33Func.*/glDrawBuffer(GL_NONE);
+    /*this->_ogl33Func.*/glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CG_ASSERT_GLCHECK();
 
     //  set up a pipeline for shadow map
     ::createShaderProgram(this->_prg_shadow, "                                  \
-            layout (location = 0) in vec4 position;                             \
+            layout(location = 0) in vec4 position;                             \
                                                                                 \
             uniform mat4 mvp_matrix;                                            \
                                                                                 \
@@ -184,27 +264,38 @@ void SSAO::initializeShaders()
                 gl_Position = mvp_matrix * position;                            \
             }                                                                   \
         ",
-        "void main() {}",
+        "                                                                       \
+            void main() {}                                                      \
+        ",
         3);
 }
 
 void SSAO::initializeGL()
 {
     Cg::OpenGLWidget::initializeGL();
-    this->_ogl33Func.initializeOpenGLFunctions();
+    //this->_ogl33Func.initializeOpenGLFunctions();
     this->navigator()->initialize(QVector3D(0.0f, 0.0f, 0.0f), 1.4f);
 
     // Set up buffer objects for the geometry
     this->initializeScene();
 
-    //  setup intermediate g-buffer, ssao, and depth buffer
-    this->initializeIntermediateBuffers();
+    //  turn on to enable SSAO
+    this->setupSSAOPass();
 
-    //  initialize all required framebuffers
-    this->initializeFramebuffers();
+    //  turn on to enable shadow
+    this->setupShadowPass();
 
-    //  initialize all shader programs
-    this->initializeShaders();
+    // Set up a pipeline for main scene
+    //::createShaderProgram(this->_prg_main, "vs.glsl", "fs.glsl", 0);
+    ::createShaderProgram(this->_prg_main, "vs_deferred.glsl", "fs_lighting.glsl", 0);
+    //  set sampler location for all input textures
+    this->_prg_main.bind();
+    this->_prg_main.setUniformValue("g_position", 0);
+    this->_prg_main.setUniformValue("g_normal", 1);
+    this->_prg_main.setUniformValue("g_albedo", 2);
+    this->_prg_main.setUniformValue("g_shadow", 3);
+    this->_prg_main.setUniformValue("ssao_texture", 4);
+    this->_prg_main.setUniformValue("shadow_map", 5);
 }
 
 void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
@@ -216,9 +307,6 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
     float near_plane = 0.5f, far_plane = 7.5f;
     PV_shadow.ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
     PV_shadow.lookAt(-this->_lightDir * LIGHT_POS_DISTANCE, QVector3D(), QVector3D(0.0f, 1.0f, 0.0f));
-
-    //  retrieve screen resolution to determine the viewport in many passes
-    GLsizei screenWidth = this->width(), screenHeight = this->height();
 
     //  Render Pass 1: Shadow
     {
@@ -269,6 +357,7 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
         VM = V * this->_mmat_model;
         this->_prg_geom.setUniformValue("modelview_matrix", VM);
         this->_prg_geom.setUniformValue("normal_matrix", VM.normalMatrix());
+        this->_prg_geom.setUniformValue("mvp_matrix_shadow", PV_shadow * this->_mmat_model);
         glBindVertexArray(this->_vao_model);
         glDrawElements(GL_TRIANGLES, this->_idxCount_model, GL_UNSIGNED_INT, 0);
         CG_ASSERT_GLCHECK();
@@ -277,6 +366,7 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
         VM = V * this->_mmat_plane;
         this->_prg_geom.setUniformValue("modelview_matrix", VM);
         this->_prg_geom.setUniformValue("normal_matrix", VM.normalMatrix());
+        this->_prg_geom.setUniformValue("mvp_matrix_shadow", PV_shadow * this->_mmat_plane);
         glBindVertexArray(this->_vao_plane);
         glDrawElements(GL_TRIANGLES, this->_idxCount_plane, GL_UNSIGNED_INT, 0);
         CG_ASSERT_GLCHECK();
@@ -293,7 +383,26 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 
         // Render: draw ssao texture
         //  ToDo : complete ssao pipeline
-        //this->_prg_ssao.bind();
+        this->_prg_ssao.bind();
+        // Send kernel + rotation 
+        /*for (unsigned int i = 0; i < 64; ++i)
+        {
+            QString valName = "samples[";
+            valName.append(std::to_string(i).c_str());
+            valName.append("]");
+            this->_prg_ssao.setUniformValue(valName.toStdString().c_str(), this->_ssaoKernel[i]);
+        }*/
+        this->_prg_ssao.setUniformValueArray("sampling_points", this->_ssaoKernel.data(), 64);
+        this->_prg_ssao.setUniformValue("projection_matrix", P);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, this->_gBuffer.position);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, this->_gBuffer.normal);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, this->_tex_noise);
+        glBindVertexArray(this->_vao_plane);
+        glDrawElements(GL_TRIANGLES, this->_idxCount_plane, GL_UNSIGNED_INT, 0);
+        CG_ASSERT_GLCHECK();
 
         //  retreat from this framebuffer
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -301,7 +410,20 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 
     //  Render Pass 4: Blurring
     {
+        // Set up framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, this->_fbo_ssao_blur);
+        glClear(GL_COLOR_BUFFER_BIT);
 
+        //  Render: draw blurred ssao texture
+        this->_prg_ssao_blur.bind();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, this->_tex_ssao);
+        glBindVertexArray(this->_vao_plane);
+        glDrawElements(GL_TRIANGLES, this->_idxCount_plane, GL_UNSIGNED_INT, 0);
+        CG_ASSERT_GLCHECK();
+
+        //  retreat from this framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     
     //  Render Pass 5: Main Pass
@@ -309,34 +431,24 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
         // Set up view
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        //  initialize model matrix and combined model-view matrix as well.
-        QMatrix4x4 VM, PVM_shadow;
-
-        // Render: draw model
-        //  ToDo: bind shadow map to uniform set
+        // Render: lighting
         this->_prg_main.bind();
-        this->_prg_main.setUniformValue("projection_matrix", P);
-        VM = V * this->_mmat_model;
-        this->_prg_main.setUniformValue("modelview_matrix", VM);
-        this->_prg_main.setUniformValue("normal_matrix", VM.normalMatrix());
-        PVM_shadow = PV_shadow * this->_mmat_model;
-        this->_prg_main.setUniformValue("mvp_matrix_shadow", PVM_shadow);
         this->_prg_main.setUniformValue("light_dir", this->_lightDir);
         this->_prg_main.setUniformValue("kd", _kd);
         this->_prg_main.setUniformValue("ks", _ks);
         this->_prg_main.setUniformValue("shininess", _shininess);
         glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, this->_gBuffer.position);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, this->_gBuffer.normal);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, this->_gBuffer.albedo);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, this->_gBuffer.shadow);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, this->_tex_ssao_blur);
+        glActiveTexture(GL_TEXTURE5);
         glBindTexture(GL_TEXTURE_2D, this->_tex_depth);
-        glBindVertexArray(this->_vao_model);
-        glDrawElements(GL_TRIANGLES, this->_idxCount_model, GL_UNSIGNED_INT, 0);
-        CG_ASSERT_GLCHECK();
-
-        //  Render: draw plane
-        VM = V * this->_mmat_plane;
-        this->_prg_main.setUniformValue("modelview_matrix", VM);
-        this->_prg_main.setUniformValue("normal_matrix", VM.normalMatrix());
-        PVM_shadow = PV_shadow * this->_mmat_plane;
-        this->_prg_main.setUniformValue("mvp_matrix_shadow", PVM_shadow);
         glBindVertexArray(this->_vao_plane);
         glDrawElements(GL_TRIANGLES, this->_idxCount_plane, GL_UNSIGNED_INT, 0);
         CG_ASSERT_GLCHECK();

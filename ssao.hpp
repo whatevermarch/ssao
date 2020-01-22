@@ -10,7 +10,7 @@ class SSAO : public Cg::OpenGLWidget
 {
 private:
     //  OpenGL core 3.3 func. wrapper object
-    QOpenGLFunctions_3_3_Core _ogl33Func;
+    //QOpenGLFunctions_3_3_Core _ogl33Func;
 
     //  Lighting State
     float _kd, _ks, _shininess;
@@ -28,7 +28,9 @@ private:
 
     //  shared objects
     QOpenGLShaderProgram _prg_main, 
-        _prg_geom, 
+        _prg_geom,
+        _prg_ssao,
+        _prg_ssao_blur,
         _prg_shadow;
 
     //  objects for plane (base scene)
@@ -50,28 +52,33 @@ private:
     {
         unsigned int position, 
             normal, 
-            albedo;
+            albedo,
+            shadow;
     } 
     _gBuffer;
     unsigned int _fbo_geom;
 
     //  objects for ssao buffer
-    unsigned int _tex_ssao,
-        _fbo_ssao;
+    unsigned int _tex_ssao, _tex_ssao_blur,
+        _fbo_ssao, _fbo_ssao_blur,
+        _tex_noise;
+
+    //  ssao kernel and noise texture object
+    QVector<QVector3D> _ssaoKernel, _ssaoNoise;
 
 
     //  intialize scene objects
     void initializeScene();
 
-    //  initialize intermediate buffers used during the full pipieline
-    //  e.g. g-buffer, shadow map, etc.
-    void initializeIntermediateBuffers();
+    //  setup SSAO pipeline, kernel and noise texture
+    void setupSSAOPass();
 
-    //  initialize all shader programs
-    void initializeShaders();
+    //  setup SSAO kernel and noise texture
+    void setupSSAOKernel();
 
-    //  initialize all required framebuffers
-    void initializeFramebuffers();
+    //  setup shadow map pipeline
+    void setupShadowPass();
+
 
 public:
     SSAO();
