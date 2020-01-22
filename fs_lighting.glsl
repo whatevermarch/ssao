@@ -27,13 +27,10 @@ vec3 blinn_phong(vec3 N, vec3 L, vec3 V, vec3 H)
     return diffuse + specular;
 }
 
-float calculate_shadow(vec4 shadowPos, vec3 N, vec3 L)
+float calculate_shadow(vec3 S, vec3 N, vec3 L)
 {
     //  transform ortho coord to proj coord
-    vec3 projCoord = shadowPos.xyz / shadowPos.w;
-
-    //  transform to [0,1] range
-    projCoord = projCoord * 0.5 + 0.5;
+    vec3 projCoord = S;
 
     // get depth of current fragment from light's perspective
     float currentDepth = projCoord.z;
@@ -57,26 +54,33 @@ float calculate_shadow(vec4 shadowPos, vec3 N, vec3 L)
     return shadow;
 }
 
+vec3 calculate_ambient(float aofactor, vec3 albedo)
+{
+    return 0.3 * aofactor * albedo;
+}
+
 void main(void)
 {
-    // The eye position in eye space is always (0,0,0).
-    vec3 eye_pos = vec3(0.0);
-
     // Normalize the input from the vertex shader
     vec3 N = texture(g_normal, vtexcoord).rgb;
     vec3 L = -light_dir;
-    vec3 V = normalize(eye_pos - texture(g_position, vtexcoord).rgb);
+    vec3 V = normalize(-texture(g_position, vtexcoord).rgb); // vector towards the eye
     vec3 H = normalize(L + V);
+    vec3 S = texture(g_shadow, vtexcoord).rgb;
+
+    float aofactor = texture(ssao_texture, vtexcoord).r;
+
+    vec3 albedo = texture(g_albedo, vtexcoord).rgb;
 
     //  lastly, compensate shadow by ambient light
-    vec3 ambient = vec3(0.05);
+    vec3 ambient = calculate_ambient(aofactor, albedo);
 
     //  calculate shadow intensity
-    float shadow = calculate_shadow(vshadowpos, N, L);
+    float shadow = calculate_shadow(S, N, L);
 
     // Evaluate the lighting model
     vec3 color = blinn_phong(N, L, V, H);
 
     // Resulting color at this fragment:
-    fcolor = vec4(surface_color * ((1.0 - shadow) * color + ambient), 1.0);
+    fcolor = vec4(albedo * ((1.0 - shadow) * color + ambient), 1.0);
 }

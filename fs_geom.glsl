@@ -21,5 +21,6 @@ void main()
     g_albedo.rgb = surface_color;
 
     //  don't forget to store clip-space vertex position in shadow pass
-    g_shadow = vshadowpos.xyz / vshadowpos.w;
+    //  also transform in ti range [0, 1]
+    g_shadow = (vshadowpos.xyz / vshadowpos.w) * 0.5 + 0.5;
 }
