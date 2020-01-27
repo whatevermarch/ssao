@@ -38,6 +38,10 @@ void createTexture(GLsizei width, GLsizei height,
     CG_ASSERT_GLCHECK();
 }
 
+//  function to build shader program from glsl code
+//  inline bits indicate if this shader module is a file to be loaded or not
+//  0x00000002 means the second least significant bit (fragment shader) is just
+//  a string, no  need to perform I/O load
 void createShaderProgram(QOpenGLShaderProgram& program, 
     const char* vs, const char* fs, int inlineBits)
 {
@@ -296,10 +300,18 @@ void SSAO::initializeGL()
     this->_prg_main.setUniformValue("g_shadow", 3);
     this->_prg_main.setUniformValue("ssao_texture", 4);
     this->_prg_main.setUniformValue("shadow_map", 5);
+
+    //  start recording time
+    this->_lastTimePoint = std::chrono::system_clock::now();
 }
 
 void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 {
+    //  capture the start time
+    auto right_now = std::chrono::system_clock::now();
+    std::chrono::duration<double> diff_time = right_now - this->_lastTimePoint;
+    this->_lastTimePoint = right_now;
+
     Cg::OpenGLWidget::paintGL(P, V, w, h);
 
     //  calculate light space PV. This is used in both passes
@@ -308,6 +320,10 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
     PV_shadow.ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
     PV_shadow.lookAt(-this->_lightDir * LIGHT_POS_DISTANCE, QVector3D(), QVector3D(0.0f, 1.0f, 0.0f));
 
+    //  update the model's animation
+    //  our angular velocity of the model is pi/2 rad/s
+    this->_mmat_model.rotate(90.0f * static_cast<float>(diff_time.count()), 0.0f, 1.0f, 0.0f);
+    
     //  Render Pass 1: Shadow
     {
         // Set up view
@@ -358,6 +374,7 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
         this->_prg_geom.setUniformValue("modelview_matrix", VM);
         this->_prg_geom.setUniformValue("normal_matrix", VM.normalMatrix());
         this->_prg_geom.setUniformValue("mvp_matrix_shadow", PV_shadow * this->_mmat_model);
+        this->_prg_geom.setUniformValue("surface_color", QVector3D(1.0f, 0.0f, 0.4f));
         glBindVertexArray(this->_vao_model);
         glDrawElements(GL_TRIANGLES, this->_idxCount_model, GL_UNSIGNED_INT, 0);
         CG_ASSERT_GLCHECK();
@@ -367,6 +384,7 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
         this->_prg_geom.setUniformValue("modelview_matrix", VM);
         this->_prg_geom.setUniformValue("normal_matrix", VM.normalMatrix());
         this->_prg_geom.setUniformValue("mvp_matrix_shadow", PV_shadow * this->_mmat_plane);
+        this->_prg_geom.setUniformValue("surface_color", QVector3D(0.8f, 0.8f, 1.0f));
         glBindVertexArray(this->_vao_plane);
         glDrawElements(GL_TRIANGLES, this->_idxCount_plane, GL_UNSIGNED_INT, 0);
         CG_ASSERT_GLCHECK();
@@ -382,18 +400,11 @@ void SSAO::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Render: draw ssao texture
-        //  ToDo : complete ssao pipeline
         this->_prg_ssao.bind();
         // Send kernel + rotation 
-        /*for (unsigned int i = 0; i < 64; ++i)
-        {
-            QString valName = "samples[";
-            valName.append(std::to_string(i).c_str());
-            valName.append("]");
-            this->_prg_ssao.setUniformValue(valName.toStdString().c_str(), this->_ssaoKernel[i]);
-        }*/
         this->_prg_ssao.setUniformValueArray("sampling_points", this->_ssaoKernel.data(), 64);
         this->_prg_ssao.setUniformValue("projection_matrix", P);
+        this->_prg_ssao.setUniformValue("noiseScale", QVector2D( w / 4.0f, h / 4.0f));
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, this->_gBuffer.position);
         glActiveTexture(GL_TEXTURE1);

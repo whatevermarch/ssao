@@ -1,4 +1,5 @@
-const vec3 surface_color = vec3(0.8, 0.8, 1.0);
+//  const vec3 surface_color = vec3(0.8, 0.8, 1.0);
+uniform vec3 surface_color;
 
 smooth in vec3 vposition;  // position in eye space
 smooth in vec3 vnormal;    // normal in eye space, not normalized

@@ -1,6 +1,8 @@
 #ifndef SSAO_HPP
 #define SSAO_HPP
 
+#include <chrono>
+
 #include <QOpenGLShaderProgram>
 #include <QVector3D>
 
@@ -11,6 +13,8 @@ class SSAO : public Cg::OpenGLWidget
 private:
     //  OpenGL core 3.3 func. wrapper object
     //QOpenGLFunctions_3_3_Core _ogl33Func;
+
+    std::chrono::time_point<std::chrono::system_clock> _lastTimePoint;
 
     //  Lighting State
     float _kd, _ks, _shininess;
