@@ -1,4 +1,4 @@
-//  const vec3 surface_color = vec3(0.8, 0.8, 1.0);
+//  const vec3 surface_color = vec3(0.8, 0.8, 1.0); //  uncomment for fixed albedo color
 uniform vec3 surface_color;
 
 smooth in vec3 vposition;  // position in eye space
@@ -12,16 +12,16 @@ layout(location = 3) out vec3 g_shadow;
 
 void main()
 {    
-    // store the fragment position vector in the first gbuffer texture
+    //  store the fragment position vector in the first gbuffer texture
     g_position = vposition;
 
-    // also store the per-fragment normals into the gbuffer
+    //  also store the per-fragment normals into the gbuffer
     g_normal = normalize(vnormal);
 
-    // and the diffuse per-fragment color
+    //  and the diffuse per-fragment color
     g_albedo.rgb = surface_color;
 
     //  don't forget to store clip-space vertex position in shadow pass
-    //  also transform in ti range [0, 1]
+    //  also transform into range [0, 1]
     g_shadow = (vshadowpos.xyz / vshadowpos.w) * 0.5 + 0.5;
 }

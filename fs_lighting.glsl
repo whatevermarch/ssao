@@ -6,20 +6,21 @@ uniform sampler2D ssao_texture;
 
 uniform sampler2D shadow_map;
 
-uniform vec3 light_dir; // representative of vlight, normalized from CPU
+//  representative of vlight, normalized from CPU
+uniform vec3 light_dir; 
 
-/* Variables for lighting (all models) */
+//  Variables for lighting (all models)
 const vec3 light_color = vec3(1.0, 1.0, 1.0);
 uniform float kd;
 uniform float ks;
-/* Variables for Blinn-Phong lighting (isotropic and anisotropic) */
+//  Variables for Blinn-Phong lighting (isotropic and anisotropic)
 uniform float shininess;
 
 smooth in vec2 vtexcoord;
 
 layout(location = 0) out vec4 fcolor;
 
-/* Isotropic Blinn-Phong lighting */
+//  Isotropic Blinn-Phong lighting
 vec3 blinn_phong(vec3 N, vec3 L, vec3 V, vec3 H)
 {
     vec3 diffuse = kd * light_color * max(dot(L, N), 0);
@@ -61,7 +62,7 @@ vec3 calculate_ambient(float aofactor, vec3 albedo)
 
 void main(void)
 {
-    // Normalize the input from the vertex shader
+    //  Normalize the input from the vertex shader
     vec3 N = texture(g_normal, vtexcoord).rgb;
     vec3 L = -light_dir;
     vec3 V = normalize(-texture(g_position, vtexcoord).rgb); // vector towards the eye
@@ -78,9 +79,9 @@ void main(void)
     //  calculate shadow intensity
     float shadow = calculate_shadow(S, N, L);
 
-    // Evaluate the lighting model
+    //  Evaluate the lighting model
     vec3 color = blinn_phong(N, L, V, H);
 
-    // Resulting color at this fragment:
+    //  Resulting color at this fragment:
     fcolor = vec4(albedo * ((1.0 - shadow) * color + ambient), 1.0);
 }

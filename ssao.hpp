@@ -11,17 +11,15 @@
 class SSAO : public Cg::OpenGLWidget
 {
 private:
-    //  OpenGL core 3.3 func. wrapper object
-    //QOpenGLFunctions_3_3_Core _ogl33Func;
 
+    //  OpenGL core 3.3 func. wrapper object
+    /*QOpenGLFunctions_3_3_Core _ogl33Func;*/
+
+    //  time stamp object
     std::chrono::time_point<std::chrono::system_clock> _lastTimePoint;
 
-    //  Lighting State
+    //  lighting variables
     float _kd, _ks, _shininess;
-
-    //////////////////////////////////////
-    //  start my work here
-    //////////////////////////////////////
 
     //  scene properties
     //  light direction towards the center of the scene
@@ -70,7 +68,6 @@ private:
     //  ssao kernel and noise texture object
     QVector<QVector3D> _ssaoKernel, _ssaoNoise;
 
-
     //  intialize scene objects
     void initializeScene();
 
@@ -82,7 +79,6 @@ private:
 
     //  setup shadow map pipeline
     void setupShadowPass();
-
 
 public:
     SSAO();

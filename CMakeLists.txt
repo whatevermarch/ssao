@@ -1,5 +1,6 @@
 # Copyright (C) 2020
-# Written by Krittin Meenrattanakorn <krittin.meenrattanakorn@student.uni-siegen.de>
+# Computer Graphics Group, University of Siegen
+# Written by Martin Lambers <martin.lambers@uni-siegen.de>
 #
 # Copying and distribution of this file, with or without modification, are
 # permitted in any medium without royalty provided the copyright notice and this

@@ -41,7 +41,7 @@ void createTexture(GLsizei width, GLsizei height,
 //  function to build shader program from glsl code
 //  inline bits indicate if this shader module is a file to be loaded or not
 //  0x00000002 means the second least significant bit (fragment shader) is just
-//  a string, no  need to perform I/O load
+//  a string, no need to perform I/O load
 void createShaderProgram(QOpenGLShaderProgram& program, 
     const char* vs, const char* fs, int inlineBits)
 {
@@ -290,7 +290,6 @@ void SSAO::initializeGL()
     this->setupShadowPass();
 
     // Set up a pipeline for main scene
-    //::createShaderProgram(this->_prg_main, "vs.glsl", "fs.glsl", 0);
     ::createShaderProgram(this->_prg_main, "vs_deferred.glsl", "fs_lighting.glsl", 0);
     //  set sampler location for all input textures
     this->_prg_main.bind();
