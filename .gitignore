@@ -351,3 +351,6 @@ MigrationBackup/
 
 # For cmake-generated vs project
 build/
+
+# Cg framework internally used
+cgbase/
